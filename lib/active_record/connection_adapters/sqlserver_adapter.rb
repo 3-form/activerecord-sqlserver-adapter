@@ -273,6 +273,7 @@ module ActiveRecord
         register_class_with_limit m, %r{\Abinary}i,       SQLServer::Type::Binary
         register_class_with_limit m, %r{\Avarbinary}i,    SQLServer::Type::Varbinary
         m.register_type              'varbinary(max)',    SQLServer::Type::VarbinaryMax.new
+        m.register_type              'image',             SQLServer::Type::VarbinaryMax.new
         # Other Data Types
         m.register_type              'uniqueidentifier',  SQLServer::Type::Uuid.new
         m.register_type              'timestamp',         SQLServer::Type::Timestamp.new
