@@ -1944,17 +1944,6 @@ class EnumTest < ActiveRecord::TestCase
     Book.where(author_id: nil, name: nil).delete_all
     Book.connection.add_index(:books, [:author_id, :name], unique: true)
   end
-
-  # Need to remove index as SQL Server considers NULLs on a unique-index to be equal unlike PostgreSQL/MySQL/SQLite.
-  coerce_tests! %r{serializable\? with large number label}
-  test "serializable? with large number label coerced" do
-    Book.connection.remove_index(:books, column: [:author_id, :name])
-
-    send(:'original_serializable\? with large number label')
-  ensure
-    Book.where(author_id: nil, name: nil).delete_all
-    Book.connection.add_index(:books, [:author_id, :name], unique: true)
-  end
 end
 
 require "models/task"
@@ -2347,5 +2336,78 @@ module ActiveRecord
         assert_equal "[price]>(0)", constraint.expression
       end
     end
+  end
+end
+
+require "models/post"
+class AnnotateTest < ActiveRecord::TestCase
+  # Same as original coerced test except our SQL starts with `EXEC sp_executesql`.
+  # TODO: Remove coerce after Rails 7 (see https://github.com/rails/rails/pull/42027)
+  coerce_tests! :test_annotate_wraps_content_in_an_inline_comment
+  def test_annotate_wraps_content_in_an_inline_comment_coerced
+    quoted_posts_id, quoted_posts = regexp_escape_table_name("posts.id"), regexp_escape_table_name("posts")
+
+    assert_sql(%r{SELECT #{quoted_posts_id} FROM #{quoted_posts} /\* foo \*/}i) do
+      posts = Post.select(:id).annotate("foo")
+      assert posts.first
+    end
+  end
+
+  # Same as original coerced test except our SQL starts with `EXEC sp_executesql`.
+  # TODO: Remove coerce after Rails 7 (see https://github.com/rails/rails/pull/42027)
+  coerce_tests! :test_annotate_is_sanitized
+  def test_annotate_is_sanitized_coerced
+    quoted_posts_id, quoted_posts = regexp_escape_table_name("posts.id"), regexp_escape_table_name("posts")
+
+    assert_sql(%r{SELECT #{quoted_posts_id} FROM #{quoted_posts} /\* \* /foo/ \* \*/}i) do
+      posts = Post.select(:id).annotate("*/foo/*")
+      assert posts.first
+    end
+
+    assert_sql(%r{SELECT #{quoted_posts_id} FROM #{quoted_posts} /\* \*\* //foo// \*\* \*/}i) do
+      posts = Post.select(:id).annotate("**//foo//**")
+      assert posts.first
+    end
+
+    assert_sql(%r{SELECT #{quoted_posts_id} FROM #{quoted_posts} /\* \* \* //foo// \* \* \*/}i) do
+      posts = Post.select(:id).annotate("* *//foo//* *")
+      assert posts.first
+    end
+
+    assert_sql(%r{SELECT #{quoted_posts_id} FROM #{quoted_posts} /\* \* /foo/ \* \*/ /\* \* /bar \*/}i) do
+      posts = Post.select(:id).annotate("*/foo/*").annotate("*/bar")
+      assert posts.first
+    end
+
+    assert_sql(%r{SELECT #{quoted_posts_id} FROM #{quoted_posts} /\* \+ MAX_EXECUTION_TIME\(1\) \*/}i) do
+      posts = Post.select(:id).annotate("+ MAX_EXECUTION_TIME(1)")
+      assert posts.first
+    end
+  end
+end
+
+class NestedThroughAssociationsTest < ActiveRecord::TestCase
+  # Same as original but replace order with "order(:id)" to ensure that assert_includes_and_joins_equal doesn't raise
+  # "A column has been specified more than once in the order by list"
+  # Example: original test generate queries like "ORDER BY authors.id, [authors].[id]". We don't support duplicate columns in the order list
+  coerce_tests! :test_has_many_through_has_many_with_has_many_through_habtm_source_reflection_preload_via_joins, :test_has_many_through_has_and_belongs_to_many_with_has_many_source_reflection_preload_via_joins
+  def test_has_many_through_has_many_with_has_many_through_habtm_source_reflection_preload_via_joins_coerced
+    # preload table schemas
+    Author.joins(:category_post_comments).first
+
+    assert_includes_and_joins_equal(
+      Author.where("comments.id" => comments(:does_it_hurt).id).order(:id),
+      [authors(:david), authors(:mary)], :category_post_comments
+    )
+  end
+
+  def test_has_many_through_has_and_belongs_to_many_with_has_many_source_reflection_preload_via_joins_coerced
+    # preload table schemas
+    Category.joins(:post_comments).first
+
+    assert_includes_and_joins_equal(
+      Category.where("comments.id" => comments(:more_greetings).id).order(:id),
+      [categories(:general), categories(:technology)], :post_comments
+    )
   end
 end
